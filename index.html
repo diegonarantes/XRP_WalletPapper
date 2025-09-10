@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>XRPL Paper Wallet (Offline) — xrpl.js</title>
+  <meta name="description" content="Gerador de Paper Wallet XRP offline usando xrpl.js" />
+  <style>
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial; background:#0b1020; color:#fff; }
+    header { padding:20px; text-align:center; background:#101830; }
+    h1 { margin:0; font-size:20px; }
+    main { max-width:960px; margin:20px auto; padding:20px; }
+    .panel { position:relative; background:#fff; color:#000; border-radius:16px; padding:20px; overflow:hidden; }
+    .background-img { position:absolute; inset:0; z-index:0; opacity:0.15; background:url('xrp_option2.png') center/cover no-repeat; }
+    .content { position:relative; z-index:1; }
+    .codebox { background:#f2f2f2; border:1px dashed #888; padding:10px; margin:6px 0; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace; word-break:break-all; }
+    .qr { background:#f2f2f2; padding:10px; display:flex; justify-content:center; align-items:center; min-height:170px; }
+    button { margin:6px; padding:10px 16px; border:none; border-radius:8px; background:#101830; color:#fff; cursor:pointer; }
+    button:hover { background:#182040; }
+    label { font-size:13px; color:#333; display:block; margin-top:10px; }
+    @media print {
+      body { background:#fff; }
+      header, .no-print { display:none; }
+      .panel { border:1px solid #000; }
+      .background-img { opacity:0.25; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>XRPL Paper Wallet — xrpl.js</h1>
+    <div style="font-size:12px;color:#aaa">100% offline. Use somente em ambiente seguro.</div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <!-- Fundo de papel wallet (Opção 2) -->
+      <div class="background-img"></div>
+
+      <div class="content">
+        <div class="no-print" style="margin-bottom:10px;">
+          <button id="btnGen">Gerar carteira</button>
+          <button id="btnPrint">Imprimir</button>
+          <button id="btnSaveTxt">Salvar .txt</button>
+          <button id="btnWipe">Limpar</button>
+        </div>
+
+        <div>
+          <label>Endereço clássico (r...)</label>
+          <div class="codebox" id="classic">—</div>
+        </div>
+        <div>
+          <label>X-Address</label>
+          <div class="codebox" id="xaddr">—</div>
+        </div>
+        <div>
+          <label>Chave secreta (s...)</label>
+          <div class="codebox" id="secret">—</div>
+        </div>
+
+        <div style="display:flex;gap:10px;">
+          <div class="qr" id="qrPub" style="flex:1;">QR Endereço</div>
+          <div class="qr" id="qrPriv" style="flex:1;">QR Secreta</div>
+        </div>
+
+        <p style="font-size:12px;color:#444;margin-top:10px">
+          ⚠️ Segurança: Não fotografe nem envie sua chave secreta por apps. Se você importar a chave para gastar,
+          mova <b>100% dos fundos</b> imediatamente para um novo endereço.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Dependências: para uso 100% offline, baixe estes JS e troque as URLs por caminhos locais -->
+  <script src="https://unpkg.com/xrpl@2.7.0/dist/npm/xrpl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+
+  <script>
+    function clearEl(el){ while(el.firstChild) el.removeChild(el.firstChild); }
+    let current = null;
+
+    async function generate(){
+      const wallet = xrpl.Wallet.generate({algorithm:'ed25519'});
+      const classic = wallet.classicAddress;
+      const secret  = wallet.seed; 
+      const xaddr   = xrpl.classicAddressToXAddress(classic, false, false);
+
+      document.getElementById('classic').textContent = classic;
+      document.getElementById('xaddr').textContent   = xaddr;
+      document.getElementById('secret').textContent  = secret;
+
+      clearEl(document.getElementById('qrPub'));
+      clearEl(document.getElementById('qrPriv'));
+      QRCode.toCanvas(classic,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPub').appendChild(canvas) });
+      QRCode.toCanvas(secret ,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPriv').appendChild(canvas) });
+
+      current = { classic, xaddr, secret };
+    }
+
+    function wipe(){
+      current = null;
+      ['classic','xaddr','secret'].forEach(id => document.getElementById(id).textContent = '—');
+      clearEl(document.getElementById('qrPub'));
+      clearEl(document.getElementById('qrPriv'));
+    }
+
+    function saveTxt(){
+      if(!current){ alert('Gere uma carteira primeiro.'); return; }
+      const data = [
+        'XRPL Paper Wallet — Exportação TXT',
+        'Gerado localmente: ' + new Date().toISOString(),
+        '',
+        'Classic Address (r…):',
+        current.classic,
+        '',
+        'X-Address:',
+        current.xaddr,
+        '',
+        'Secret (family seed — mantenha em segredo):',
+        current.secret,
+        '',
+        'Aviso: Não armazene este arquivo em dispositivos conectados à internet se planeja usar valores reais.'
+      ].join('\n');
+
+      const blob = new Blob([data], {type:'text/plain;charset=utf-8'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'xrpl-paper-wallet.txt'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    document.getElementById('btnGen').onclick = generate;
+    document.getElementById('btnWipe').onclick = wipe;
+    document.getElementById('btnSaveTxt').onclick = saveTxt;
+    document.getElementById('btnPrint').onclick = () => window.print();
+  </script>
+</body>
+</html>
