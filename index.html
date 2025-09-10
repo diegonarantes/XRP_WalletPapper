@@ -18,6 +18,10 @@
     button { margin:6px; padding:10px 16px; border:none; border-radius:8px; background:#101830; color:#fff; cursor:pointer; }
     button:hover { background:#182040; }
     label { font-size:13px; color:#333; display:block; margin-top:10px; }
+    .status { margin:10px 0; padding:10px; border-radius:8px; font-size:13px; }
+    .ok { background:#e8f8ee; color:#165c2f; border:1px solid #bfe8ce; }
+    .warn { background:#fff3cd; color:#7a5d00; border:1px solid #ffe9a8; }
+    .err { background:#fde2e1; color:#8a1d1b; border:1px solid #f7b6b4; }
     @media print {
       body { background:#fff; }
       header, .no-print { display:none; }
@@ -34,7 +38,6 @@
 
   <main>
     <section class="panel">
-      <!-- Fundo de papel wallet (Opção 2) -->
       <div class="background-img"></div>
 
       <div class="content">
@@ -44,6 +47,8 @@
           <button id="btnSaveTxt">Salvar .txt</button>
           <button id="btnWipe">Limpar</button>
         </div>
+
+        <div id="status" class="status warn">Pronto. Se clicar em “Gerar carteira” e nada acontecer, provavelmente o script <b>xrpl.js</b> não carregou. Desça a página, que eu testo abaixo automaticamente.</div>
 
         <div>
           <label>Endereço clássico (r...)</label>
@@ -71,30 +76,61 @@
     </section>
   </main>
 
-  <!-- Dependências: para uso 100% offline, baixe estes JS e troque as URLs por caminhos locais -->
-  <script src="https://unpkg.com/xrpl@2.7.0/dist/npm/xrpl.min.js"></script>
+  <!-- Troquei o CDN do xrpl para jsDelivr -->
+  <script src="https://cdn.jsdelivr.net/npm/xrpl@2.7.0/dist/npm/xrpl.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 
   <script>
     function clearEl(el){ while(el.firstChild) el.removeChild(el.firstChild); }
+
+    function setStatus(msg, cls) {
+      const el = document.getElementById('status');
+      el.className = 'status ' + (cls || 'ok');
+      el.innerHTML = msg;
+    }
+
+    // Testa carregamento das libs assim que a página abrir
+    (function checkLibs(){
+      const xrplLoaded = typeof window.xrpl !== 'undefined' && typeof xrpl.Wallet !== 'undefined';
+      const qrLoaded   = typeof window.QRCode !== 'undefined';
+      if (!xrplLoaded) {
+        setStatus('Falha ao carregar <b>xrpl.js</b> do CDN. Tente recarregar a página, usar outra rede/4G, ou rodar 100% offline com os scripts locais.', 'err');
+      } else if (!qrLoaded) {
+        setStatus('Falha ao carregar <b>qrcode.min.js</b>. Recarregue a página ou rode com script local.', 'err');
+      } else {
+        setStatus('Bibliotecas carregadas. Pode clicar em <b>Gerar carteira</b>.', 'ok');
+      }
+    })();
+
     let current = null;
 
     async function generate(){
-      const wallet = xrpl.Wallet.generate({algorithm:'ed25519'});
-      const classic = wallet.classicAddress;
-      const secret  = wallet.seed; 
-      const xaddr   = xrpl.classicAddressToXAddress(classic, false, false);
+      try {
+        if (!window.xrpl || !xrpl.Wallet) {
+          setStatus('xrpl.js não está disponível. Verifique sua conexão ou o CDN.', 'err');
+          return;
+        }
 
-      document.getElementById('classic').textContent = classic;
-      document.getElementById('xaddr').textContent   = xaddr;
-      document.getElementById('secret').textContent  = secret;
+        const wallet = xrpl.Wallet.generate({algorithm:'ed25519'});
+        const classic = wallet.classicAddress;
+        const secret  = wallet.seed; // family seed (s…)
+        const xaddr   = xrpl.classicAddressToXAddress(classic, false, false);
 
-      clearEl(document.getElementById('qrPub'));
-      clearEl(document.getElementById('qrPriv'));
-      QRCode.toCanvas(classic,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPub').appendChild(canvas) });
-      QRCode.toCanvas(secret ,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPriv').appendChild(canvas) });
+        document.getElementById('classic').textContent = classic;
+        document.getElementById('xaddr').textContent   = xaddr;
+        document.getElementById('secret').textContent  = secret;
 
-      current = { classic, xaddr, secret };
+        clearEl(document.getElementById('qrPub'));
+        clearEl(document.getElementById('qrPriv'));
+        QRCode.toCanvas(classic,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPub').appendChild(canvas) });
+        QRCode.toCanvas(secret ,{width:150, margin:1},(err,canvas)=>{ if(!err) document.getElementById('qrPriv').appendChild(canvas) });
+
+        current = { classic, xaddr, secret };
+        setStatus('Carteira gerada localmente. Guarde a secret em sigilo.', 'ok');
+      } catch (e) {
+        console.error(e);
+        setStatus('Erro ao gerar: ' + (e && e.message ? e.message : e), 'err');
+      }
     }
 
     function wipe(){
@@ -102,31 +138,38 @@
       ['classic','xaddr','secret'].forEach(id => document.getElementById(id).textContent = '—');
       clearEl(document.getElementById('qrPub'));
       clearEl(document.getElementById('qrPriv'));
+      setStatus('Limpou da tela. Pronto para gerar novamente.', 'warn');
     }
 
     function saveTxt(){
-      if(!current){ alert('Gere uma carteira primeiro.'); return; }
-      const data = [
-        'XRPL Paper Wallet — Exportação TXT',
-        'Gerado localmente: ' + new Date().toISOString(),
-        '',
-        'Classic Address (r…):',
-        current.classic,
-        '',
-        'X-Address:',
-        current.xaddr,
-        '',
-        'Secret (family seed — mantenha em segredo):',
-        current.secret,
-        '',
-        'Aviso: Não armazene este arquivo em dispositivos conectados à internet se planeja usar valores reais.'
-      ].join('\n');
+      try {
+        if(!current){ alert('Gere uma carteira primeiro.'); return; }
+        const data = [
+          'XRPL Paper Wallet — Exportação TXT',
+          'Gerado localmente: ' + new Date().toISOString(),
+          '',
+          'Classic Address (r…):',
+          current.classic,
+          '',
+          'X-Address:',
+          current.xaddr,
+          '',
+          'Secret (family seed — mantenha em segredo):',
+          current.secret,
+          '',
+          'Aviso: Não armazene este arquivo em dispositivos conectados à internet se planeja usar valores reais.'
+        ].join('\\n');
 
-      const blob = new Blob([data], {type:'text/plain;charset=utf-8'});
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'xrpl-paper-wallet.txt'; a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
+        const blob = new Blob([data], {type:'text/plain;charset=utf-8'});
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = 'xrpl-paper-wallet.txt'; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        setStatus('TXT salvo localmente no seu dispositivo.', 'ok');
+      } catch(e){
+        console.error(e);
+        setStatus('Erro ao salvar TXT: ' + (e && e.message ? e.message : e), 'err');
+      }
     }
 
     document.getElementById('btnGen').onclick = generate;
